@@ -1,0 +1,17 @@
+name: 'Docker Hub Login'
+description: 'Logs into Docker Hub using secrets'
+inputs:
+  username:
+    description: 'Docker Hub Username'
+    required: true
+  password:
+    description: 'Docker Hub Password'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Log in to Docker Hub
+      shell: bash
+      run: |
+        echo "${{ inputs.password }}" | docker login -u "${{ inputs.username }}" --password-stdin

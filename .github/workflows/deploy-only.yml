@@ -1,0 +1,76 @@
+name: Deploy to Elastic Beanstalk
+on:
+  workflow_run:
+    workflows: ["Build and Push to Docker Hub"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Generate deployment package
+        run: zip -r deploy.zip . -x '*.git*'
+
+      - name: Deploy to EB
+        uses: einaregilsson/beanstalk-deploy@v18
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          application_name: multi-docker
+          environment_name: Multi-docker-env
+          existing_bucket_name: elasticbeanstalk-ap-south-1-376505902044
+          region: ap-south-1
+          version_label: ${{ github.sha }}
+          deployment_package: deploy.zip
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ap-south-1
+
+      - name: Get Environment URL
+        id: get-url
+        run: |
+          ENDPOINT=$(aws elasticbeanstalk describe-environments \
+            --application-name multi-docker \
+            --environment-names Multi-docker-env \
+            --query "Environments[0].CNAME" --output text)
+          echo "URL=http://$ENDPOINT" >> $GITHUB_OUTPUT
+
+      - name: Sanity Check URL
+        run: |
+          echo "Waiting 60s for containers to start..."
+          sleep 60
+          TARGET_URL="${{ steps.get-url.outputs.URL }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET_URL")
+          
+          if [ "$STATUS" -eq 200 ]; then
+            echo "✅ Sanity check passed for $TARGET_URL"
+          else
+            echo "❌ Sanity check failed for $TARGET_URL with status $STATUS"
+            exit 1
+          fi
+
+    #   - name: Notify Deployment/Sanity Failure
+    #     if: failure()
+    #     uses: dawidd6/action-send-mail@v3
+    #     with:
+    #       server_address: ${{ secrets.MAIL_SERVER }}
+    #       server_port: ${{ secrets.MAIL_PORT }}
+    #       username: ${{ secrets.MAIL_USERNAME }}
+    #       password: ${{ secrets.MAIL_PASSWORD }}
+    #       subject: "⚠️ Deployment Failure: ${{ github.repository }}"
+    #       to: your-email@example.com
+    #       from: GitHub Actions
+    #       body: |
+    #         Deployment or Sanity Check failed for ${{ github.repository }}.
+    #         Environment URL: ${{ steps.get-url.outputs.URL }}
+    #         Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

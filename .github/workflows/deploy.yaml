@@ -19,17 +19,8 @@ jobs:
           sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
           sudo chmod +x /usr/local/bin/docker-compose
           docker-compose --version
-      # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-client-up ./client
-      # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-nginx-up ./nginx
-      # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-server-up ./server
-      # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-worker-up ./worker
       - run: docker-compose -f docker-compose.yml build
-
-      # - run: docker push ${{ secrets.DOCKER_USERNAME }}/multi-client-up
-      # - run: docker push ${{ secrets.DOCKER_USERNAME }}/multi-nginx-up
-      # - run: docker push ${{ secrets.DOCKER_USERNAME }}/multi-server-up
-      # - run: docker push ${{ secrets.DOCKER_USERNAME }}/multi-worker-up
-
+      
       - run: docker-compose -f docker-compose.yml push
 
       - name: Generate deployment package
