@@ -5,6 +5,9 @@ on:
     branches:
       - main # check your repo, your default branch might be master!
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
