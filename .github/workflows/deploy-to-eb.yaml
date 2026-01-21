@@ -1,0 +1,75 @@
+name: Deploy to Elastic Beanstalk
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Only run if the build workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Docker Compose
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
+      
+      - name: Create docker-compose override for production
+        run: |
+          cat > docker-compose.prod.yml << 'EOF'
+          version: '3'
+          services:
+            postgres:
+              image: 'postgres:latest'
+              environment:
+                - POSTGRES_PASSWORD=postgres_password
+            redis:
+              image: 'redis:latest'
+            nginx:
+              image: ${{ secrets.DOCKER_USERNAME }}/my-nginx:${{ github.event.workflow_run.head_sha || github.sha }}
+              ports:
+                - '80:80'
+            api:
+              image: ${{ secrets.DOCKER_USERNAME }}/my-api:${{ github.event.workflow_run.head_sha || github.sha }}
+              environment:
+                - REDIS_HOST=redis
+                - REDIS_PORT=6379
+                - PGUSER=postgres
+                - PGHOST=postgres
+                - PGDATABASE=postgres
+                - PGPASSWORD=postgres_password
+                - PGPORT=5432
+            client:
+              image: ${{ secrets.DOCKER_USERNAME }}/my-client:${{ github.event.workflow_run.head_sha || github.sha }}
+              environment:
+                - WDS_SOCKET_PORT=0
+            worker:
+              image: ${{ secrets.DOCKER_USERNAME }}/my-worker:${{ github.event.workflow_run.head_sha || github.sha }}
+              environment:
+                - REDIS_HOST=redis
+                - REDIS_PORT=6379
+          EOF
+
+      - name: Generate deployment package
+        run: zip -r deploy.zip . -x '*.git*'
+
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v18
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          application_name: multi-docker
+          environment_name: Multi-docker-env
+          existing_bucket_name: elasticbeanstalk-ap-south-1-376505902044
+          region: ap-south-1
+          version_label: ${{ github.event.workflow_run.head_sha || github.sha }}
+          deployment_package: deploy.zip
