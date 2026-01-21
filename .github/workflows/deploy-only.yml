@@ -75,6 +75,15 @@ jobs:
             exit 1
           fi
 
+      - name: Fetch Logs on Failure
+        if: failure()
+        run: |
+          aws elasticbeanstalk request-environment-info --environment-name Multi-docker-env --info-type tail
+          sleep 5
+          LOG_URL=$(aws elasticbeanstalk describe-environment-info --environment-name Multi-docker-env --info-type tail --query "EnvironmentInfo[0].Message" --output text)
+          echo "### 📋 Deployment Logs" >> $GITHUB_STEP_SUMMARY
+          if [ "$LOG_URL" != "None" ]; then curl -s "$LOG_URL" && echo "Full logs: $LOG_URL" >> $GITHUB_STEP_SUMMARY; fi
+          
       - name: Perform Rollback on Failure
         # Only run if sanity check failed AND we captured a valid previous version
         if: |
@@ -88,7 +97,7 @@ jobs:
             --environment-name Multi-docker-env \
             --version-label "${{ steps.pre-deploy.outputs.PREVIOUS_VERSION }}"
           echo "Rollback command issued."
-          
+
     #   - name: Notify Deployment/Sanity Failure
     #     if: failure()
     #     uses: dawidd6/action-send-mail@v3
