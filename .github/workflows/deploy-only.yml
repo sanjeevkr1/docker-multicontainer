@@ -14,6 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ap-south-1
+
+      - name: Capture Previous Version (for Rollback)
+        id: pre-deploy
+        run: |
+            PREV_VERSION=$(aws elasticbeanstalk describe-environments \
+                --application-name multi-docker \
+                --environment-names Multi-docker-env \
+                --query "Environments[0].VersionLabel" --output text)
+            echo "PREVIOUS_VERSION=$PREV_VERSION" >> $GITHUB_OUTPUT
+            echo "Previous version was: $PREV_VERSION"
+
       - name: Generate deployment package
         run: zip -r deploy.zip . -x '*.git*'
 
@@ -33,13 +50,7 @@ jobs:
           wait_for_deployment: true
           wait_for_environment_recovery: 300
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-          aws-region: ap-south-1
-
+      
       - name: Get Environment URL
         id: get-url
         run: |
@@ -50,6 +61,7 @@ jobs:
           echo "URL=http://$ENDPOINT" >> $GITHUB_OUTPUT
 
       - name: Sanity Check URL
+        id: sanity-check
         run: |
           echo "Waiting 60s for containers to start..."
           sleep 60
@@ -63,6 +75,20 @@ jobs:
             exit 1
           fi
 
+      - name: Perform Rollback on Failure
+        # Only run if sanity check failed AND we captured a valid previous version
+        if: |
+          failure() && 
+          steps.sanity-check.outcome == 'failure' && 
+          steps.pre-deploy.outputs.PREVIOUS_VERSION != '' &&
+          steps.pre-deploy.outputs.PREVIOUS_VERSION != 'null'
+        run: |
+          echo "Starting rollback to version: ${{ steps.pre-deploy.outputs.PREVIOUS_VERSION }}"
+          aws elasticbeanstalk update-environment \
+            --environment-name Multi-docker-env \
+            --version-label "${{ steps.pre-deploy.outputs.PREVIOUS_VERSION }}"
+          echo "Rollback command issued."
+          
     #   - name: Notify Deployment/Sanity Failure
     #     if: failure()
     #     uses: dawidd6/action-send-mail@v3
