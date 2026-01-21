@@ -1,11 +1,6 @@
 name: Deploy to Elastic Beanstalk
 on:
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Docker image tag (commit SHA) to deploy'
-        required: false
-        default: 'latest'
   workflow_run:
     workflows: ["Build and Push Docker Images"]
     types:
@@ -25,18 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Set image tag
-        id: set_tag
+      - name: Load environment variables from .env file
+        id: dotenv
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          # Read and export variables from .env file
+          if [ -f .env ]; then
+            export $(grep -v '^#' .env | xargs)
+            echo "DOCKER_USERNAME=$DOCKER_USERNAME" >> $GITHUB_OUTPUT
+            echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+            echo "DOCKER_USERNAME=$DOCKER_USERNAME" >> $GITHUB_ENV
+            echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           else
-            echo "tag=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+            echo "Error: .env file not found"
+            exit 1
           fi
       
       - name: Create docker-compose override for production
         run: |
-          cat > docker-compose.prod.yml << 'EOF'
+          cat > docker-compose.prod.yml << EOF
           version: '3'
           services:
             postgres:
@@ -46,11 +47,11 @@ jobs:
             redis:
               image: 'redis:latest'
             nginx:
-              image: ${{ secrets.DOCKER_USERNAME }}/my-nginx:${{ steps.set_tag.outputs.tag }}
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-nginx:${{ steps.dotenv.outputs.IMAGE_TAG }}
               ports:
                 - '80:80'
             api:
-              image: ${{ secrets.DOCKER_USERNAME }}/my-api:${{ steps.set_tag.outputs.tag }}
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-api:${{ steps.dotenv.outputs.IMAGE_TAG }}
               environment:
                 - REDIS_HOST=redis
                 - REDIS_PORT=6379
@@ -60,11 +61,11 @@ jobs:
                 - PGPASSWORD=postgres_password
                 - PGPORT=5432
             client:
-              image: ${{ secrets.DOCKER_USERNAME }}/my-client:${{ steps.set_tag.outputs.tag }}
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-client:${{ steps.dotenv.outputs.IMAGE_TAG }}
               environment:
                 - WDS_SOCKET_PORT=0
             worker:
-              image: ${{ secrets.DOCKER_USERNAME }}/my-worker:${{ steps.set_tag.outputs.tag }}
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-worker:${{ steps.dotenv.outputs.IMAGE_TAG }}
               environment:
                 - REDIS_HOST=redis
                 - REDIS_PORT=6379
@@ -82,5 +83,5 @@ jobs:
           environment_name: Multi-docker-env
           existing_bucket_name: elasticbeanstalk-ap-south-1-376505902044
           region: ap-south-1
-          version_label: ${{ steps.set_tag.outputs.tag }}
+          version_label: ${{ steps.dotenv.outputs.IMAGE_TAG }}
           deployment_package: deploy.zip
