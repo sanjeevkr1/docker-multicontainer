@@ -14,6 +14,11 @@ jobs:
       - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/react-test-up -f ./client/Dockerfile.dev ./client
       - run: docker run -e CI=true ${{ secrets.DOCKER_USERNAME }}/react-test-up npm test
 
+      - name: Install Docker Compose
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
       # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-client-up ./client
       # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-nginx-up ./nginx
       # - run: docker build -t ${{ secrets.DOCKER_USERNAME }}/multi-server-up ./server
