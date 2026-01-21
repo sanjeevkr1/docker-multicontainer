@@ -1,0 +1,7 @@
+# Updated .gitignore
+
+# Ignore node modules
+node_modules/
+
+# Ignore environment files
+# Removed .env occurrences
