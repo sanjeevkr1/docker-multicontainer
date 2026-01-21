@@ -16,7 +16,7 @@ services:
       context: ./nginx
     image: ${DOCKER_USERNAME}/my-nginx:${IMAGE_TAG:-latest}
     ports:
-      - '3050:80'
+      - '80:80'
   api:
     build:
       dockerfile: Dockerfile
