@@ -1,0 +1,54 @@
+name: Build and Push Docker Images
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main # check your repo, your default branch might be master!
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Load environment variables from .env file
+        id: dotenv
+        run: |
+          # Read and export variables from .env file
+          if [ -f .env ]; then
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              if [[ ! "$key" =~ ^#.* ]] && [[ -n "$key" ]]; then
+                # Remove any quotes from the value
+                value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+                echo "$key=$value" >> $GITHUB_OUTPUT
+              fi
+            done < .env
+          else
+            echo "Error: .env file not found"
+            exit 1
+          fi
+      
+      - name: Login to Docker Hub
+        run: docker login -u ${{ steps.dotenv.outputs.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build test image
+        run: docker build -t ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/react-test-up -f ./client/Dockerfile.dev ./client
+      
+      - name: Run tests
+        run: docker run -e CI=true ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/react-test-up npm test
+      
+      - name: Build all services
+        run: docker-compose -f docker-compose.yml build
+        env:
+          DOCKER_USERNAME: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ steps.dotenv.outputs.IMAGE_TAG }}
+
+      - name: Push images to Docker Hub
+        run: docker-compose -f docker-compose.yml push
+        env:
+          DOCKER_USERNAME: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ steps.dotenv.outputs.IMAGE_TAG }}

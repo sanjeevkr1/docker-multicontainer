@@ -1,0 +1,90 @@
+name: Deploy to Elastic Beanstalk
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Only run if the build workflow succeeded or if manually triggered
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run && github.event.workflow_run.conclusion == 'success') }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Load environment variables from .env file
+        id: dotenv
+        run: |
+          # Read and export variables from .env file
+          if [ -f .env ]; then
+            while IFS='=' read -r key value; do
+              # Skip comments and empty lines
+              if [[ ! "$key" =~ ^#.* ]] && [[ -n "$key" ]]; then
+                # Remove any quotes from the value
+                value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+                echo "$key=$value" >> $GITHUB_OUTPUT
+              fi
+            done < .env
+          else
+            echo "Error: .env file not found"
+            exit 1
+          fi
+      
+      - name: Create docker-compose override for production
+        run: |
+          cat > docker-compose.prod.yml << EOF
+          version: '3'
+          services:
+            postgres:
+              image: 'postgres:latest'
+              environment:
+                - POSTGRES_PASSWORD=postgres_password
+            redis:
+              image: 'redis:latest'
+            nginx:
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-nginx:${{ steps.dotenv.outputs.IMAGE_TAG }}
+              ports:
+                - '80:80'
+            api:
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-api:${{ steps.dotenv.outputs.IMAGE_TAG }}
+              environment:
+                - REDIS_HOST=redis
+                - REDIS_PORT=6379
+                - PGUSER=postgres
+                - PGHOST=postgres
+                - PGDATABASE=postgres
+                - PGPASSWORD=postgres_password
+                - PGPORT=5432
+            client:
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-client:${{ steps.dotenv.outputs.IMAGE_TAG }}
+              environment:
+                - WDS_SOCKET_PORT=0
+            worker:
+              image: ${{ steps.dotenv.outputs.DOCKER_USERNAME }}/my-worker:${{ steps.dotenv.outputs.IMAGE_TAG }}
+              environment:
+                - REDIS_HOST=redis
+                - REDIS_PORT=6379
+          EOF
+
+      - name: Generate deployment package
+        run: zip -r deploy.zip . -x '*.git*'
+
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v18
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          application_name: multi-docker
+          environment_name: Multi-docker-env
+          existing_bucket_name: elasticbeanstalk-ap-south-1-376505902044
+          region: ap-south-1
+          version_label: ${{ steps.dotenv.outputs.IMAGE_TAG }}
+          deployment_package: deploy.zip
